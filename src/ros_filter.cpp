@@ -678,6 +678,9 @@ void RosFilter<T>::integrateMeasurements(const rclcpp::Time & current_time)
     // should project the state forward here.
     rclcpp::Duration last_update_delta =
       current_time - filter_.getLastMeasurementTime();
+    // std::cout << "current time " << filter_utilities::toSec(current_time) << std::endl;
+    // std::cout << "filter_.getLastMeasurementTime() " << filter_utilities::toSec(filter_.getLastMeasurementTime()) << std::endl;
+    // std::cout << "last_update_delta " << filter_utilities::toSec(last_update_delta) << std::endl;
 
     // If we get a large delta, then continuously predict until
     if (last_update_delta >= filter_.getSensorTimeout()) {
@@ -694,6 +697,7 @@ void RosFilter<T>::integrateMeasurements(const rclcpp::Time & current_time)
     RF_DEBUG("Filter not yet initialized.\n");
   }
 
+  /*
   if (filter_.getInitializedStatus() && predict_to_current_time) {
     rclcpp::Duration last_update_delta =
       current_time - filter_.getLastMeasurementTime();
@@ -706,6 +710,7 @@ void RosFilter<T>::integrateMeasurements(const rclcpp::Time & current_time)
       filter_.getLastMeasurementTime() +
       last_update_delta);
   }
+  */
 
   RF_DEBUG("\n----- /RosFilter<T>::integrateMeasurements ------\n");
 }
@@ -2022,6 +2027,7 @@ void RosFilter<T>::periodicUpdate()
   }
 
   // Get latest state and publish it
+  // here by default it will use nav_msgs::msg::Odometry as the final filtered position!
   auto filtered_position = std::make_unique<nav_msgs::msg::Odometry>();
 
   bool corrected_data = false;
@@ -2033,6 +2039,7 @@ void RosFilter<T>::periodicUpdate()
       filtered_position->header.frame_id;
     world_base_link_trans_msg_.child_frame_id =
       filtered_position->child_frame_id;
+    std::cout << "filtered position child frame id " << filtered_position->child_frame_id << std::endl;
 
     world_base_link_trans_msg_.transform.translation.x =
       filtered_position->pose.pose.position.x;
@@ -2042,6 +2049,8 @@ void RosFilter<T>::periodicUpdate()
       filtered_position->pose.pose.position.z;
     world_base_link_trans_msg_.transform.rotation =
       filtered_position->pose.pose.orientation;
+
+    std::cout << "filtered position pose: x " << filtered_position->pose.pose.position.x << ", y " << filtered_position->pose.pose.position.y << ", z " << filtered_position->pose.pose.position.z << std::endl;
 
     // The filtered_position is the message containing the state and covariances:
     // nav_msgs Odometry
@@ -2069,12 +2078,15 @@ void RosFilter<T>::periodicUpdate()
       if (filtered_position->header.frame_id == odom_frame_id_) {
         world_transform_broadcaster_->sendTransform(world_base_link_trans_msg_);
       } else if (filtered_position->header.frame_id == map_frame_id_) {
+        std::cout << "frame id is map frame" << std::endl;
         try {
+          // first need map -> base_link
           tf2::Transform world_base_link_trans;
           tf2::fromMsg(
             world_base_link_trans_msg_.transform,
             world_base_link_trans);
 
+          // then need base_link -> odom
           tf2::Transform base_link_odom_trans;
           tf2::fromMsg(
             tf_buffer_
@@ -2107,9 +2119,11 @@ void RosFilter<T>::periodicUpdate()
            * the same, we need to broadcast the inverse of that entire
            * transform.
            */
+          // then get map -> odom
           tf2::Transform map_odom_trans;
           map_odom_trans.mult(world_base_link_trans, base_link_odom_trans);
 
+          // finally publish map -> odom
           geometry_msgs::msg::TransformStamped map_odom_trans_msg;
           map_odom_trans_msg.transform = tf2::toMsg(map_odom_trans);
           map_odom_trans_msg.header.stamp =
@@ -2118,7 +2132,9 @@ void RosFilter<T>::periodicUpdate()
           map_odom_trans_msg.child_frame_id = odom_frame_id_;
 
           world_transform_broadcaster_->sendTransform(map_odom_trans_msg);
+          std::cout << "actually publishing map to odom" << std::endl;
         } catch (...) {
+          std::cout << "actually done nothing" << std::endl;
           // ROS_ERROR_STREAM_DELAYED_THROTTLE(5.0, "Could not obtain
           // transform from "
           //                                  << odom_frame_id_ << "->" <<
